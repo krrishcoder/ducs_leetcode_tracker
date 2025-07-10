@@ -7,6 +7,8 @@ import { User } from './models/User.js';
 import { LeetCode } from 'leetcode-query';
 import { SubmissionSummary } from './models/SubmissionSummary.js';
 
+import cors from 'cors';
+
 
 
 dotenv.config();
@@ -14,6 +16,13 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 app.use(express.json());
+
+
+// Add this after const app = express();
+app.use(cors({
+  origin: 'http://localhost:3000', // or your frontend URL
+  credentials: true
+}));
 
 
 
@@ -26,6 +35,7 @@ mongoose.connect(process.env.MONGO_URI, {
 
 
 
+/////////////////////////////USER REGISTER///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 app.post('/users', async (req, res) => {
   const { username, name } = req.body;
@@ -70,12 +80,18 @@ app.post('/users', async (req, res) => {
 
 
 
-// 🧾 List all users
+
+////////////////////////////////////GET ALL USERS////////////////////////////////////////////////////////////////////////////////////////////////////////////
 app.get('/users', async (req, res) => {
   const users = await User.find();
   res.json(users);
 });
 
+
+
+
+
+///////////////////////////////////////////////TRACK --  IF USER WANT TO UPDATE AT CURRENT TIME , time taking task/////////////////////////////////////////////////////////////////////////////////////////////////
 
 app.get('/track', async (req, res) => {
   try {
@@ -168,6 +184,206 @@ app.get('/track', async (req, res) => {
     res.status(500).json({ error: '❌ Failed to track users' });
   }
 });
+
+
+////////////////////////////////////shows ranking////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//GET /ranking?type=today
+//GET /ranking?type=this_week
+//GET /ranking?type=this_month
+//GET /ranking?type=total
+
+
+
+app.get('/ranking', async (req, res) => {
+  try {
+    const { type = 'today' } = req.query;
+
+    const now = new Date();
+    const istNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    const startOfToday = new Date(istNow.getFullYear(), istNow.getMonth(), istNow.getDate());
+    const dateStringToday = startOfToday.toISOString().split('T')[0];
+
+    let dateFilter = {};
+
+    if (type === 'today') {
+      dateFilter = { date: dateStringToday };
+    } else if (type === 'this_week') {
+      const startOfWeek = new Date(startOfToday);
+      startOfWeek.setDate(startOfToday.getDate() - 6);
+      dateFilter = {
+        date: { $gte: startOfWeek.toISOString().split('T')[0] }
+      };
+    } else if (type === 'this_month') {
+      const startOfMonth = new Date(istNow.getFullYear(), istNow.getMonth(), 1);
+      dateFilter = {
+        date: { $gte: startOfMonth.toISOString().split('T')[0] }
+      };
+    } else if (type === 'total') {
+      // no filter, fetch all
+
+    } else {
+      return res.status(400).json({ error: '❌ Invalid type parameter' });
+    }
+
+    const pipeline = [
+      ...(Object.keys(dateFilter).length > 0 ? [{ $match: dateFilter }] : []),
+      {
+        $group: {
+          _id: '$user',
+          totalCount: { $sum: '$totalCount' },
+          easy: { $sum: '$difficulty.easy' },
+          medium: { $sum: '$difficulty.medium' },
+          hard: { $sum: '$difficulty.hard' }
+        }
+      },
+      {
+        $lookup: {
+          from: 'users',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'userInfo'
+        }
+      },
+      { $unwind: '$userInfo' },
+      {
+        $project: {
+          username: '$userInfo.username',
+          totalCount: 1,
+          easy: 1,
+          medium: 1,
+          hard: 1
+        }
+      },
+      { $sort: { totalCount: -1 } }
+    ];
+
+    const results = await SubmissionSummary.aggregate(pipeline);
+
+    res.json({
+      status: '✅ Rankings fetched',
+      type,
+      results
+    });
+
+  } catch (err) {
+    console.error('❌ Ranking fetch error:', err.message);
+    res.status(500).json({ error: '❌ Failed to fetch rankings' });
+  }
+});
+
+/////////////////////////////////shows submission summary for a user////////////////////////////////////////////////////////////////////////////////////////////////////////////
+import { TotalStats } from './models/TotalStats.js';
+
+
+app.get('/refresh-total', async (req, res) => {
+  try {
+    const users = await User.find();
+    const lc = new LeetCode();
+    const results = [];
+
+    for (const user of users) {
+      try {
+        const data = await lc.user(user.username);
+
+        const ac = data?.matchedUser?.submitStats?.acSubmissionNum;
+
+        if (!Array.isArray(ac)) {
+          throw new Error("Invalid response: acSubmissionNum not found");
+        }
+
+        const getCount = (difficulty) => {
+          const d = ac.find(x => x.difficulty.toLowerCase() === difficulty);
+          return d?.count || 0;
+        };
+
+        const easy = getCount('easy');
+        const medium = getCount('medium');
+        const hard = getCount('hard');
+        const totalSolved = easy + medium + hard;
+
+        const updated = await TotalStats.findOneAndUpdate(
+          { user: user._id },
+          {
+            $set: {
+              username: user.username,
+              totalSolved,
+              easy,
+              medium,
+              hard,
+              lastUpdated: new Date()
+            }
+          },
+          { upsert: true, new: true }
+        );
+
+        results.push({ username: user.username, totalSolved });
+      } catch (err) {
+        console.error(`❌ Failed to refresh ${user.username}:`, err.message);
+        results.push({ username: user.username, error: true });
+      }
+    }
+
+    res.json({
+      message: '✅ Refreshed total stats for all users',
+      results
+    });
+
+  } catch (err) {
+    console.error('❌ Failed to refresh total stats:', err.message);
+    res.status(500).json({ error: '❌ Internal Server Error' });
+  }
+});
+
+
+///////////////////////////////////shows total stats for a user////////////////////////////////////////////////////////////////////////////////////////////////////////////
+app.get('/total-leaderboard', async (req, res) => {
+  try {
+    const stats = await TotalStats.find().sort({ totalSolved: -1 });
+    res.json({ stats });
+  } catch (err) {
+    console.error('❌ Failed to fetch leaderboard:', err.message);
+    res.status(500).json({ error: '❌ Internal Server Error' });
+  }
+});
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+app.get('/leetcode/:username', async (req, res) => {
+  const { username } = req.params;
+  const lc = new LeetCode();
+
+  try {
+    const data = await lc.user(username);
+    const ac = data?.matchedUser?.submitStats?.acSubmissionNum;
+
+    if (!Array.isArray(ac)) {
+      return res.status(404).json({ error: '❌ Invalid response from LeetCode API' });
+    }
+
+    const getCount = (difficulty) => {
+      const d = ac.find(x => x.difficulty.toLowerCase() === difficulty);
+      return d?.count || 0;
+    };
+
+    const easy = getCount('easy');
+    const medium = getCount('medium');
+    const hard = getCount('hard');
+    const totalSolved = easy + medium + hard;
+
+    res.json({
+      username,
+      easy,
+      medium,
+      hard,
+      totalSolved
+    });
+  } catch (err) {
+    console.error(`❌ Error fetching LeetCode profile for ${username}:`, err.message);
+    res.status(500).json({ error: '❌ Failed to fetch profile' });
+  }
+});
+
 
 
 
