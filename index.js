@@ -18,11 +18,15 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 
 
-// Add this after const app = express();
 app.use(cors({
-  origin: 'http://localhost:3000', // or your frontend URL
+  origin: [
+    'http://localhost:3000',
+    'http://127.0.0.1:5500',
+    'https://ducs-leetcode-tracker07f.vercel.app'
+  ],
   credentials: true
 }));
+
 
 
 
