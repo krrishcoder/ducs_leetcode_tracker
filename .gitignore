@@ -1,0 +1,35 @@
+# Node modules
+node_modules/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment variables
+.env
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE/editor folders
+.vscode/
+.idea/
+
+# Optional coverage/test output
+coverage/
+*.lcov
+
+# Build artifacts
+dist/
+build/
+
+# MongoDB local data (if ever used locally)
+dump/
+*.pid
+
+# Render local files (if any)
+.renderrc
