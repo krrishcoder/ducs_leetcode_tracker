@@ -2,6 +2,8 @@
 
 A full‑stack solution for tracking LeetCode progress of Department of Computer Science (DUCS) students. The service stores user details in MongoDB, fetches their latest accepted submissions via the **leetcode‑query** library, and exposes REST endpoints for registration, daily tracking, leader‑boards, and total statistics.
 
+Live API Base URL: **[https://ducs-leetcode-tracker-1.onrender.com](https://ducs-leetcode-tracker-1.onrender.com)**
+
 ---
 
 ## ✨ Features
@@ -71,27 +73,33 @@ MONGO_URI=mongodb://127.0.0.1:27017/leetcode
 
 ## 🌐 API Reference
 
+> Base URL: **[https://ducs-leetcode-tracker-1.onrender.com](https://ducs-leetcode-tracker-1.onrender.com)**
 > All responses are JSON; **401** or **404** errors include an `error` message.
 
 ### Register User
 
 ```http
 POST /users
-Content‑Type: application/json
+```
 
+[🔗 Try it](https://ducs-leetcode-tracker-1.onrender.com/users) *(use POST method with JSON body)*
+
+**Request Body:**
+
+```json
 {
   "username": "krishcoder07",
   "name": "Krish Kshx"
 }
 ```
 
-Returns `201 Created` on success.
-
 ### List Users
 
 ```http
 GET /users
 ```
+
+[🔗 Try it](https://ducs-leetcode-tracker-1.onrender.com/users)
 
 ---
 
@@ -101,9 +109,7 @@ GET /users
 GET /track
 ```
 
-* Iterates through every saved user.
-* Updates/creates a `SubmissionSummary` document for **each** user for **today** (IST).
-* Returns array of per‑user results.
+[🔗 Try it](https://ducs-leetcode-tracker-1.onrender.com/track)
 
 ### Rankings
 
@@ -111,12 +117,7 @@ GET /track
 GET /ranking?type=<period>
 ```
 
-| `type` value        | Window                            |
-| ------------------- | --------------------------------- |
-| `today` *(default)* | 00:00 – 23:59 IST current day     |
-| `this_week`         | Last 7 days                       |
-| `this_month`        | First → last day of current month |
-| `total`             | All time                          |
+[🔗 Today](https://ducs-leetcode-tracker-1.onrender.com/ranking?type=today) | [🔗 This Week](https://ducs-leetcode-tracker-1.onrender.com/ranking?type=this_week) | [🔗 This Month](https://ducs-leetcode-tracker-1.onrender.com/ranking?type=this_month) | [🔗 Total](https://ducs-leetcode-tracker-1.onrender.com/ranking?type=total)
 
 ### Refresh Total Stats
 
@@ -124,7 +125,7 @@ GET /ranking?type=<period>
 GET /refresh-total
 ```
 
-Calculates grand totals for each user and upserts `TotalStats`.
+[🔗 Try it](https://ducs-leetcode-tracker-1.onrender.com/refresh-total)
 
 ### Total Leader‑Board
 
@@ -132,13 +133,15 @@ Calculates grand totals for each user and upserts `TotalStats`.
 GET /total-leaderboard
 ```
 
+[🔗 Try it](https://ducs-leetcode-tracker-1.onrender.com/total-leaderboard)
+
 ### Direct LeetCode Profile Snapshot
 
 ```http
 GET /leetcode/:username
 ```
 
-Fetches fresh stats for a single user without touching DB.
+Example: [🔗 krishcoder07](https://ducs-leetcode-tracker-1.onrender.com/leetcode/krishcoder07)
 
 ---
 
