@@ -96,46 +96,147 @@ app.get('/users', async (req, res) => {
 
 /////////////////////////////////////////////// TRACK --  IF USER WANT TO UPDATE AT CURRENT TIME , time taking task/////////////////////////////////////////////////////////////////////////////////////////////////
 
+// app.get('/track', async (req, res) => {
+//   try {
+//     const users = await User.find();
+//     const lc = new LeetCode();
+
+//     // Get start and end of today in IST
+//     const now = new Date();
+//     const istNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+//     const startOfDay = new Date(istNow.getFullYear(), istNow.getMonth(), istNow.getDate()).getTime();
+//     const endOfDay = startOfDay + 24 * 60 * 60 * 1000;
+//     const dateString = new Date(startOfDay).toISOString().split('T')[0];
+
+//             const results = [];
+
+//             for (const user of users) {
+//             try {
+//                 const data = await lc.user(user.username);
+//                 const submissions = data.recentSubmissionList || [];
+
+//             const todayAcceptedRaw = submissions.filter(s => {
+//         const ts = s.timestamp * 1000;
+//         return (
+//             s.statusDisplay === 'Accepted' &&
+//             ts >= startOfDay &&
+//             ts < endOfDay
+//         );
+//         });
+
+//         // Remove duplicates based on titleSlug
+//         const seen = new Set();
+//         const todayAccepted = todayAcceptedRaw.filter(s => {
+//         if (!s.titleSlug || seen.has(s.titleSlug)) return false;
+//         seen.add(s.titleSlug);
+//         return true;
+//         });
+
+
+//         let easy = 0, medium = 0, hard = 0;
+
+//         for (const sub of todayAccepted) {
+//           let difficulty = sub.difficulty;
+
+//           if (!difficulty && sub.titleSlug) {
+//             try {
+//               const prob = await lc.problem(sub.titleSlug);
+//               difficulty = prob.difficulty;
+//             } catch {
+//               difficulty = 'Unknown';
+//             }
+//           }
+
+//           const level = difficulty?.toLowerCase();
+//           if (level === 'easy') easy++;
+//           else if (level === 'medium') medium++;
+//           else if (level === 'hard') hard++;
+//         }
+
+//         const totalCount = easy + medium + hard;
+
+//         // Only update if something was solved
+//         if (totalCount > 0) {
+//           await SubmissionSummary.updateOne(
+//             { user: user._id, date: dateString },
+//             {
+//               $set: {
+//                 totalCount,
+//                 difficulty: { easy, medium, hard }
+//               }
+//             },
+//             { upsert: true }
+//           );
+//         }
+
+//         results.push({ user: user.username, totalCount, easy, medium, hard });
+//       } catch (err) {
+//         console.error(`❌ Error for user ${user.username}:`, err.message);
+//         results.push({ user: user.username, error: true });
+//       }
+//     }
+
+//     return res.json({
+//       status: '✅ Daily summary updated',
+//       date: dateString,
+//       results
+//     });
+
+//   } catch (err) {
+//     console.error('❌ Global tracking error:', err.message);
+//     res.status(500).json({ error: '❌ Failed to track users' });
+//   }
+// });
+
+
 app.get('/track', async (req, res) => {
   try {
     const users = await User.find();
     const lc = new LeetCode();
 
-    // Get start and end of today in IST
-    const now = new Date();
-    const istNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
-    const startOfDay = new Date(istNow.getFullYear(), istNow.getMonth(), istNow.getDate()).getTime();
-    const endOfDay = startOfDay + 24 * 60 * 60 * 1000;
-    const dateString = new Date(startOfDay).toISOString().split('T')[0];
+    /* ------------------------------------------------------------------
+       ❶  Rolling‑24‑hour window
+    ------------------------------------------------------------------ */
+    const endTime   = Date.now();                       // “now” in ms
+    const startTime = endTime - 24 * 60 * 60 * 1000;    // 24 h ago
 
-            const results = [];
+    /* ❷  Label today’s record by IST calendar date
+          (keeps compatibility with your /ranking pipeline)            */
+    const istNow      = new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' });
+    const dateString  = new Date(istNow).toISOString().split('T')[0];
 
-            for (const user of users) {
-            try {
-                const data = await lc.user(user.username);
-                const submissions = data.recentSubmissionList || [];
+    const results = [];
 
-            const todayAcceptedRaw = submissions.filter(s => {
-        const ts = s.timestamp * 1000;
-        return (
+    /* ------------------------------------------------------------------
+       ❸  Iterate over users and aggregate last‑24h solves
+    ------------------------------------------------------------------ */
+    for (const user of users) {
+      try {
+        const data        = await lc.user(user.username);
+        const submissions = data.recentSubmissionList || [];
+
+        // filter Accepted submissions inside [startTime, endTime)
+        const recentAcceptedRaw = submissions.filter(s => {
+          const ts = s.timestamp * 1000;           // LeetCode → ms
+          return (
             s.statusDisplay === 'Accepted' &&
-            ts >= startOfDay &&
-            ts < endOfDay
-        );
+            ts >= startTime &&
+            ts <  endTime
+          );
         });
 
-        // Remove duplicates based on titleSlug
+        /* Deduplicate by titleSlug */
         const seen = new Set();
-        const todayAccepted = todayAcceptedRaw.filter(s => {
-        if (!s.titleSlug || seen.has(s.titleSlug)) return false;
-        seen.add(s.titleSlug);
-        return true;
+        const recentAccepted = recentAcceptedRaw.filter(s => {
+          if (!s.titleSlug || seen.has(s.titleSlug)) return false;
+          seen.add(s.titleSlug);
+          return true;
         });
 
-
+        /* Count by difficulty */
         let easy = 0, medium = 0, hard = 0;
 
-        for (const sub of todayAccepted) {
+        for (const sub of recentAccepted) {
           let difficulty = sub.difficulty;
 
           if (!difficulty && sub.titleSlug) {
@@ -148,17 +249,17 @@ app.get('/track', async (req, res) => {
           }
 
           const level = difficulty?.toLowerCase();
-          if (level === 'easy') easy++;
+          if (level === 'easy')   easy++;
           else if (level === 'medium') medium++;
-          else if (level === 'hard') hard++;
+          else if (level === 'hard')   hard++;
         }
 
         const totalCount = easy + medium + hard;
 
-        // Only update if something was solved
+        /* Upsert only if something was solved */
         if (totalCount > 0) {
           await SubmissionSummary.updateOne(
-            { user: user._id, date: dateString },
+            { user: user._id, date: dateString },      // ← still keyed by IST day
             {
               $set: {
                 totalCount,
@@ -170,15 +271,19 @@ app.get('/track', async (req, res) => {
         }
 
         results.push({ user: user.username, totalCount, easy, medium, hard });
+
       } catch (err) {
         console.error(`❌ Error for user ${user.username}:`, err.message);
         results.push({ user: user.username, error: true });
       }
     }
 
+    /* ------------------------------------------------------------------ */
     return res.json({
-      status: '✅ Daily summary updated',
-      date: dateString,
+      status: '✅ 24‑hour summary updated',
+      windowStart: new Date(startTime).toISOString(),
+      windowEnd:   new Date(endTime).toISOString(),
+      dateKey:     dateString,   // record stored under this IST day
       results
     });
 
