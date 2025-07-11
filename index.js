@@ -94,8 +94,7 @@ app.get('/users', async (req, res) => {
 
 
 
-
-///////////////////////////////////////////////TRACK --  IF USER WANT TO UPDATE AT CURRENT TIME , time taking task/////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////// TRACK --  IF USER WANT TO UPDATE AT CURRENT TIME , time taking task/////////////////////////////////////////////////////////////////////////////////////////////////
 
 app.get('/track', async (req, res) => {
   try {
@@ -198,56 +197,126 @@ app.get('/track', async (req, res) => {
 
 
 
+// app.get('/ranking', async (req, res) => {
+//   try {
+//     const { type = 'today' } = req.query;
+
+//     const now = new Date();
+//     const istNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+//     const startOfToday = new Date(istNow.getFullYear(), istNow.getMonth(), istNow.getDate());
+//     const dateStringToday = startOfToday.toISOString().split('T')[0];
+
+//     let dateFilter = {};
+
+//     if (type === 'today') {
+//       dateFilter = { date: dateStringToday };
+//     } else if (type === 'this_week') {
+//       const startOfWeek = new Date(startOfToday);
+//       startOfWeek.setDate(startOfToday.getDate() - 6);
+//       dateFilter = {
+//         date: { $gte: startOfWeek.toISOString().split('T')[0] }
+//       };
+//     } else if (type === 'this_month') {
+//       const startOfMonth = new Date(istNow.getFullYear(), istNow.getMonth(), 1);
+//       dateFilter = {
+//         date: { $gte: startOfMonth.toISOString().split('T')[0] }
+//       };
+//     } else if (type === 'total') {
+//       // no filter, fetch all
+
+//     } else {
+//       return res.status(400).json({ error: '❌ Invalid type parameter' });
+//     }
+
+//     const pipeline = [
+//       ...(Object.keys(dateFilter).length > 0 ? [{ $match: dateFilter }] : []),
+//       {
+//         $group: {
+//           _id: '$user',
+//           totalCount: { $sum: '$totalCount' },
+//           easy: { $sum: '$difficulty.easy' },
+//           medium: { $sum: '$difficulty.medium' },
+//           hard: { $sum: '$difficulty.hard' }
+//         }
+//       },
+//       {
+//         $lookup: {
+//           from: 'users',
+//           localField: '_id',
+//           foreignField: '_id',
+//           as: 'userInfo'
+//         }
+//       },
+//       { $unwind: '$userInfo' },
+//       {
+//         $project: {
+//           username: '$userInfo.username',
+//           totalCount: 1,
+//           easy: 1,
+//           medium: 1,
+//           hard: 1
+//         }
+//       },
+//       { $sort: { totalCount: -1 } }
+//     ];
+
+//     const results = await SubmissionSummary.aggregate(pipeline);
+
+//     res.json({
+//       status: '✅ Rankings fetched',
+//       type,
+//       results
+//     });
+
+//   } catch (err) {
+//     console.error('❌ Ranking fetch error:', err.message);
+//     res.status(500).json({ error: '❌ Failed to fetch rankings' });
+//   }
+// });
+
 app.get('/ranking', async (req, res) => {
   try {
     const { type = 'today' } = req.query;
 
-    const now = new Date();
-    const istNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
-    const startOfToday = new Date(istNow.getFullYear(), istNow.getMonth(), istNow.getDate());
-    const dateStringToday = startOfToday.toISOString().split('T')[0];
+    // Current IST date
+    const istNow = new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' });
+    const today = new Date(istNow);               // full Date object in IST
+    today.setHours(0, 0, 0, 0);                   // midnight IST
+
+    // ISO strings for today and yesterday
+    const todayStr     = today.toISOString().split('T')[0];
+
+    const yesterday    = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().split('T')[0];
 
     let dateFilter = {};
 
     if (type === 'today') {
-      dateFilter = { date: dateStringToday };
+      dateFilter = { date: { $in: [yesterdayStr, todayStr] } };   // ← key change
     } else if (type === 'this_week') {
-      const startOfWeek = new Date(startOfToday);
-      startOfWeek.setDate(startOfToday.getDate() - 6);
-      dateFilter = {
-        date: { $gte: startOfWeek.toISOString().split('T')[0] }
-      };
+      const startOfWeek = new Date(today);
+      startOfWeek.setDate(today.getDate() - 6);
+      dateFilter = { date: { $gte: startOfWeek.toISOString().split('T')[0] } };
     } else if (type === 'this_month') {
-      const startOfMonth = new Date(istNow.getFullYear(), istNow.getMonth(), 1);
-      dateFilter = {
-        date: { $gte: startOfMonth.toISOString().split('T')[0] }
-      };
-    } else if (type === 'total') {
-      // no filter, fetch all
-
-    } else {
+      const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+      dateFilter = { date: { $gte: startOfMonth.toISOString().split('T')[0] } };
+    } else if (type !== 'total') {
       return res.status(400).json({ error: '❌ Invalid type parameter' });
     }
 
     const pipeline = [
-      ...(Object.keys(dateFilter).length > 0 ? [{ $match: dateFilter }] : []),
+      ...(Object.keys(dateFilter).length ? [{ $match: dateFilter }] : []),
       {
         $group: {
           _id: '$user',
           totalCount: { $sum: '$totalCount' },
-          easy: { $sum: '$difficulty.easy' },
+          easy:   { $sum: '$difficulty.easy'   },
           medium: { $sum: '$difficulty.medium' },
-          hard: { $sum: '$difficulty.hard' }
+          hard:   { $sum: '$difficulty.hard'   }
         }
       },
-      {
-        $lookup: {
-          from: 'users',
-          localField: '_id',
-          foreignField: '_id',
-          as: 'userInfo'
-        }
-      },
+      { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'userInfo' } },
       { $unwind: '$userInfo' },
       {
         $project: {
@@ -263,17 +332,13 @@ app.get('/ranking', async (req, res) => {
 
     const results = await SubmissionSummary.aggregate(pipeline);
 
-    res.json({
-      status: '✅ Rankings fetched',
-      type,
-      results
-    });
-
+    res.json({ status: '✅ Rankings fetched', type, results });
   } catch (err) {
     console.error('❌ Ranking fetch error:', err.message);
     res.status(500).json({ error: '❌ Failed to fetch rankings' });
   }
 });
+
 
 /////////////////////////////////shows submission summary for a user////////////////////////////////////////////////////////////////////////////////////////////////////////////
 import { TotalStats } from './models/TotalStats.js';
