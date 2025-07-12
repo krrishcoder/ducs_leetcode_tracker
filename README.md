@@ -233,7 +233,7 @@ GET /background-track
 
 ## ⚖️ License
 
-MIT © 2025 *Krish Kshx* / DUCS
+MIT © 2025 *Krishna Kumar* / DUCS
 
 ---
 
