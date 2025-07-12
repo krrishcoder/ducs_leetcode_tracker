@@ -48,6 +48,9 @@ app.post('/users', async (req, res) => {
     return res.status(400).json({ error: 'Username is required' });
   }
 
+  // 🔽 Convert to lowercase -- by debuggger18
+  username = username.toLowerCase();
+
   try {
     // 1. Check if user already exists in MongoDB
     const existing = await User.findOne({ username });
@@ -312,84 +315,6 @@ app.get('/track', async (req, res) => {
 //GET /ranking?type=total
 
 
-
-// app.get('/ranking', async (req, res) => {
-//   try {
-//     const { type = 'today' } = req.query;
-
-//     const now = new Date();
-//     const istNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
-//     const startOfToday = new Date(istNow.getFullYear(), istNow.getMonth(), istNow.getDate());
-//     const dateStringToday = startOfToday.toISOString().split('T')[0];
-
-//     let dateFilter = {};
-
-//     if (type === 'today') {
-//       dateFilter = { date: dateStringToday };
-//     } else if (type === 'this_week') {
-//       const startOfWeek = new Date(startOfToday);
-//       startOfWeek.setDate(startOfToday.getDate() - 6);
-//       dateFilter = {
-//         date: { $gte: startOfWeek.toISOString().split('T')[0] }
-//       };
-//     } else if (type === 'this_month') {
-//       const startOfMonth = new Date(istNow.getFullYear(), istNow.getMonth(), 1);
-//       dateFilter = {
-//         date: { $gte: startOfMonth.toISOString().split('T')[0] }
-//       };
-//     } else if (type === 'total') {
-//       // no filter, fetch all
-
-//     } else {
-//       return res.status(400).json({ error: '❌ Invalid type parameter' });
-//     }
-
-//     const pipeline = [
-//       ...(Object.keys(dateFilter).length > 0 ? [{ $match: dateFilter }] : []),
-//       {
-//         $group: {
-//           _id: '$user',
-//           totalCount: { $sum: '$totalCount' },
-//           easy: { $sum: '$difficulty.easy' },
-//           medium: { $sum: '$difficulty.medium' },
-//           hard: { $sum: '$difficulty.hard' }
-//         }
-//       },
-//       {
-//         $lookup: {
-//           from: 'users',
-//           localField: '_id',
-//           foreignField: '_id',
-//           as: 'userInfo'
-//         }
-//       },
-//       { $unwind: '$userInfo' },
-//       {
-//         $project: {
-//           username: '$userInfo.username',
-//           totalCount: 1,
-//           easy: 1,
-//           medium: 1,
-//           hard: 1
-//         }
-//       },
-//       { $sort: { totalCount: -1 } }
-//     ];
-
-//     const results = await SubmissionSummary.aggregate(pipeline);
-
-//     res.json({
-//       status: '✅ Rankings fetched',
-//       type,
-//       results
-//     });
-
-//   } catch (err) {
-//     console.error('❌ Ranking fetch error:', err.message);
-//     res.status(500).json({ error: '❌ Failed to fetch rankings' });
-//   }
-// });
-
 app.get('/ranking', async (req, res) => {
   try {
     const { type = 'today' } = req.query;
@@ -569,6 +494,70 @@ app.get('/leetcode/:username', async (req, res) => {
   }
 });
 
+/////////////////////////////////////////////////////// Contest Ranking Model //////////////////////////////////////////////////////
+// routes/contestRoutes.js
+
+import { ContestRanking } from './models/ContestRanking.js';
+
+
+
+app.post('/refresh-contests', async (req, res) => {
+ 
+
+  try {
+    const lc = new LeetCode();
+
+    const users = await User.find();
+    if (!users.length) {
+      return res.status(404).json({ message: 'No users found in the database' });
+    }
+
+    const results = [];
+
+    for (const user of users) {
+      try {
+        const data = await lc.user_contest_info(user.username);
+
+        if (!data?.userContestRanking) {
+          results.push({ username: user.username, success: false, message: 'No contest data' });
+          continue;
+        }
+
+        const updated = await ContestRanking.findOneAndUpdate(
+          { user: user._id },
+          { ...data.userContestRanking, user: user._id },
+          { new: true, upsert: true, setDefaultsOnInsert: true }
+        );
+
+        results.push({ username: user.username, success: true, data: updated });
+      } catch (err) {
+        console.error(`❌ Error for ${user.username}:`, err.message);
+        results.push({ username: user.username, success: false, message: err.message });
+      }
+    }
+
+    return res.status(200).json({ message: 'Refreshed rankings for all users', results });
+  } catch (error) {
+    console.error('❌ Failed to refresh all users:', error.message);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+
+///////////////////////////////////////////////////////GET ALL CONTEST RANKINGS////////////////////////////////////////////////////////////////////////////////////////////////////////////
+app.get('/contest-rankings', async (req, res) => {
+  try {
+    const rankings = await ContestRanking.find()
+      .populate('user', 'username email')  // Populate username & email from User model
+      .sort({ rating: -1 }); // optional: sort by rating descending
+
+    res.status(200).json(rankings);
+  } catch (error) {
+    console.error('❌ Error fetching contest rankings:', error.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 
 
 
@@ -587,46 +576,3 @@ app.listen(PORT, () => {
 
 
 
-
-
-// app.get('/submissions/:username', async (req, res) => {
-//   const { username } = req.params;
-//   const lc = new LeetCode();
-
-//   try {
-//     const data = await lc.user(username);
-//     const submissions = data?.recentSubmissionList;
-
-//     if (!submissions || submissions.length === 0) {
-//       return res.status(404).json({ error: '❌ No submissions found or user not found' });
-//     }
-
-//     // Fetch problem metadata in parallel
-//     const enrichedSubmissions = await Promise.all(
-//       submissions.map(async (s, index) => {
-//         let difficulty = 'unknown';
-//         try {
-//           const question = await lc.problem(s.titleSlug);
-//           difficulty = question?.difficulty || 'unknown';
-//         } catch (err) {
-//           console.warn(`⚠️ Failed to fetch difficulty for ${s.titleSlug}`);
-//         }
-
-//         return {
-//           no: index + 1,
-//           title: s.title,
-//           status: s.statusDisplay,
-//           difficulty,
-//           time: new Date(s.timestamp * 1000).toLocaleString('en-IN', {
-//             timeZone: 'Asia/Kolkata',
-//           }),
-//         };
-//       })
-//     );
-
-//     res.json({ user: username, submissions: enrichedSubmissions });
-//   } catch (err) {
-//     console.error(err);
-//     res.status(500).json({ error: '❌ Internal server error' });
-//   }
-// });
